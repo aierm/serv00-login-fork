@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
 ##- cron: "0 0 */3 * *"  # 每三天运行一次，可以根据需求调整时间
-    - cron: '0 0 */20 * *'  # 每 20 天执行一次
+    - cron: '0 0 */14 * *'  # 每 20 天执行一次
   push:
     branches:
       - main
