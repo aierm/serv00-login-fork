@@ -1,41 +1,59 @@
-name: Run Login Script
+name: Serv00 自动登录
 
 on:
   workflow_dispatch:
   schedule:
-##- cron: "0 0 */3 * *"  # 每三天运行一次，可以根据需求调整时间
-    - cron: '0 0 */7 * *'  # 每 20 天执行一次
+    - cron: "0 0 */3 * *"  # 每三天运行一次
   push:
     branches:
       - main
+
 jobs:
   login:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout 仓库代码
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: 设置 Python 环境
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.x'  # 设置你希望使用的 Python 版本，建议使用稳定版本
+          python-version: '3.10'
 
-      - name: Create accounts.json from environment variable
-        run: echo "$ACCOUNTS_JSON" > accounts.json
-        env:
-            ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}  # 从GitHub Secrets中获取环境变量
+      - name: 安装 Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
 
       - name: 安装依赖
         run: |
+          sudo apt-get update
+          sudo apt-get install -y curl unzip xvfb libnss3 fonts-liberation
           python -m pip install --upgrade pip
-          pip install pyppeteer aiofiles requests
-          pip install --upgrade pyppeteer
+          pip install selenium requests webdriver-manager chromedriver-binary-auto
 
       - name: 运行登录脚本
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}
-        run: |
-          python login_script.py
+        run: python login_script.py
+
+      - name: 上传截图
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: login-screenshots
+          path: "*.png"
+          retention-days: 7
+
+  keepalive-workflow:
+    name: Keepalive Workflow
+    needs: login
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: liskin/gh-workflow-keepalive@v1
