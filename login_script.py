@@ -29,42 +29,72 @@ async def login(username, password, panel):
     serviceName = 'ct8' if 'ct8' in panel else 'serv00'
     try:
         if not browser:
-            browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+            browser = await launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-dev-shm-usage',
+                    '--disable-setuid-sandbox',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu'
+                ]
+            )
 
         page = await browser.newPage()
-        # 设置一个常见的用户代理，有助于避免被识别为机器人
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36')
-        url = f'https://{panel}/login/?next=/'
-        await page.goto(url, {'waitUntil': 'networkidle2'}) # 确保页面完全加载
+        # 设置视口大小，这很重要！
+        await page.setViewport({'width': 1366, 'height': 768})
+        # 设置用户代理
+        await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 
-        # 清空并输入用户名
+        url = f'https://{panel}/login/?next=/'
+        # 使用更严格的等待条件
+        await page.goto(url, {'waitUntil': ['domcontentloaded', 'networkidle0']})
+
+        # 等待用户名输入框出现并可见
+        await page.waitForSelector('#id_username', {'timeout': 30000})
         username_input = await page.querySelector('#id_username')
-        if username_input:
-            await page.evaluate('''(input) => input.value = ""''', username_input)
-        await page.type('#id_username', username)
+        
+        # 清空输入框
+        await page.evaluate('(input) => input.value = ""', username_input)
+        # 输入用户名
+        await page.type('#id_username', username, {'delay': 100}) # 添加输入延迟模拟人类
 
         # 输入密码
-        await page.type('#id_password', password)
+        await page.type('#id_password', password, {'delay': 100})
 
-        # --- 关键修改：使用新的选择器查找按钮 ---
-        # 等待按钮出现并可交互
-        await page.waitForSelector('button[type="submit"]', {'timeout': 10000})
-        # 找到按钮
-        login_button = await page.querySelector('button[type="submit"]')
-        # 或者也可以使用 Class 选择器，二选一即可
-        # await page.waitForSelector('button.button--primary', {'timeout': 10000})
-        # login_button = await page.querySelector('button.button--primary')
+        # 关键修改：等待按钮变为可见和可交互状态
+        # 创建一个 Promise race，防止因为某些元素一直加载不成功而卡死
+        submit_selector = 'button[type="submit"]'
+        print(f"等待提交按钮: {submit_selector}")
+        
+        # 等待按钮出现在 DOM 中
+        await page.waitForSelector(submit_selector, {'timeout': 15000})
+        
+        # 额外等待确保按钮可见可点击
+        await page.waitForFunction(f'''
+            document.querySelector('{submit_selector}') &&
+            document.querySelector('{submit_selector}').offsetParent !== null &&
+            !document.querySelector('{submit_selector}').disabled
+        ''', {'timeout': 15000})
 
-        if login_button:
-            # 点击按钮
-            await login_button.click()
-        else:
-            raise Exception('无法找到登录按钮 (使用选择器 button[type="submit"])')
+        # 使用 JavaScript 直接点击按钮，这通常更可靠
+        await page.evaluate(f'''
+            document.querySelector('{submit_selector}').click();
+        ''')
 
-        # 等待导航完成，跳转到登录后的页面
-        await page.waitForNavigation({'waitUntil': 'networkidle2', 'timeout': 30000})
+        # 等待导航完成
+        await asyncio.sleep(3)  # 先等待短暂时间
+        await page.waitForNavigation({
+            'waitUntil': ['networkidle0', 'domcontentloaded'],
+            'timeout': 45000
+        })
 
-        # ... 剩余的检查登录是否成功的逻辑 ...
+        # 检查是否登录成功
         is_logged_in = await page.evaluate('''() => {
             const logoutButton = document.querySelector('a[href="/logout/"]');
             return logoutButton !== null;
@@ -74,6 +104,8 @@ async def login(username, password, panel):
 
     except Exception as e:
         print(f'{serviceName}账号 {username} 登录时出现错误: {e}')
+        # 可以在这里添加截图功能帮助调试
+        # await page.screenshot({'path': f'error_{username}.png'})
         return False
     finally:
         if page:
