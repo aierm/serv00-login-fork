@@ -25,91 +25,39 @@ message = ""
 
 async def login(username, password, panel):
     global browser
-    page = None
     serviceName = 'ct8' if 'ct8' in panel else 'serv00'
+
     try:
         if not browser:
-            browser = await launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    '--disable-dev-shm-usage',
-                    '--disable-setuid-sandbox',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--disable-gpu'
-                ]
-            )
+            browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
 
         page = await browser.newPage()
-        # 设置视口大小，这很重要！
-        await page.setViewport({'width': 1366, 'height': 768})
-        # 设置用户代理
-        await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-
         url = f'https://{panel}/login/?next=/'
-        # 使用更严格的等待条件
-        await page.goto(url, {'waitUntil': ['domcontentloaded', 'networkidle0']})
+        await page.goto(url)
 
-        # 等待用户名输入框出现并可见
-        await page.waitForSelector('#id_username', {'timeout': 30000})
-        username_input = await page.querySelector('#id_username')
-        
-        # 清空输入框
-        await page.evaluate('(input) => input.value = ""', username_input)
-        # 输入用户名
-        await page.type('#id_username', username, {'delay': 100}) # 添加输入延迟模拟人类
+        # 等待输入框
+        await page.waitForSelector('#id_username', {'timeout': 15000})
+        await page.type('#id_username', username)
+        await page.type('#id_password', password)
 
-        # 输入密码
-        await page.type('#id_password', password, {'delay': 100})
+        # 等待提交按钮并点击
+        await page.waitForSelector('button[type="submit"]', {'timeout': 15000})
+        login_button = await page.querySelector('button[type="submit"]')
+        await login_button.click()
 
-        # 关键修改：等待按钮变为可见和可交互状态
-        # 创建一个 Promise race，防止因为某些元素一直加载不成功而卡死
-        submit_selector = 'button[type="submit"]'
-        print(f"等待提交按钮: {submit_selector}")
-        
-        # 等待按钮出现在 DOM 中
-        await page.waitForSelector(submit_selector, {'timeout': 15000})
-        
-        # 额外等待确保按钮可见可点击
-        await page.waitForFunction(f'''
-            document.querySelector('{submit_selector}') &&
-            document.querySelector('{submit_selector}').offsetParent !== null &&
-            !document.querySelector('{submit_selector}').disabled
-        ''', {'timeout': 15000})
-
-        # 使用 JavaScript 直接点击按钮，这通常更可靠
-        await page.evaluate(f'''
-            document.querySelector('{submit_selector}').click();
-        ''')
-
-        # 等待导航完成
-        await asyncio.sleep(3)  # 先等待短暂时间
-        await page.waitForNavigation({
-            'waitUntil': ['networkidle0', 'domcontentloaded'],
-            'timeout': 45000
-        })
-
-        # 检查是否登录成功
-        is_logged_in = await page.evaluate('''() => {
-            const logoutButton = document.querySelector('a[href="/logout/"]');
-            return logoutButton !== null;
-        }''')
-
-        return is_logged_in
+        # 等待登录成功标志
+        try:
+            await page.waitForSelector('a[href="/logout/"]', {'timeout': 15000})
+            return True
+        except:
+            return False
 
     except Exception as e:
         print(f'{serviceName}账号 {username} 登录时出现错误: {e}')
-        # 可以在这里添加截图功能帮助调试
-        # await page.screenshot({'path': f'error_{username}.png'})
         return False
     finally:
-        if page:
-            await page.close()
+        await page.close()
+
 
 # 显式的浏览器关闭函数
 async def shutdown_browser():
