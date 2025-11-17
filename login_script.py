@@ -25,32 +25,46 @@ message = ""
 
 async def login(username, password, panel):
     global browser
-
-    page = None  # 确保 page 在任何情况下都被定义
+    page = None
     serviceName = 'ct8' if 'ct8' in panel else 'serv00'
     try:
         if not browser:
             browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
 
         page = await browser.newPage()
+        # 设置一个常见的用户代理，有助于避免被识别为机器人
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36')
         url = f'https://{panel}/login/?next=/'
-        await page.goto(url)
+        await page.goto(url, {'waitUntil': 'networkidle2'}) # 确保页面完全加载
 
+        # 清空并输入用户名
         username_input = await page.querySelector('#id_username')
         if username_input:
             await page.evaluate('''(input) => input.value = ""''', username_input)
-
         await page.type('#id_username', username)
+
+        # 输入密码
         await page.type('#id_password', password)
 
-        login_button = await page.querySelector('#submit')
+        # --- 关键修改：使用新的选择器查找按钮 ---
+        # 等待按钮出现并可交互
+        await page.waitForSelector('button[type="submit"]', {'timeout': 10000})
+        # 找到按钮
+        login_button = await page.querySelector('button[type="submit"]')
+        # 或者也可以使用 Class 选择器，二选一即可
+        # await page.waitForSelector('button.button--primary', {'timeout': 10000})
+        # login_button = await page.querySelector('button.button--primary')
+
         if login_button:
+            # 点击按钮
             await login_button.click()
         else:
-            raise Exception('无法找到登录按钮')
+            raise Exception('无法找到登录按钮 (使用选择器 button[type="submit"])')
 
-        await page.waitForNavigation()
+        # 等待导航完成，跳转到登录后的页面
+        await page.waitForNavigation({'waitUntil': 'networkidle2', 'timeout': 30000})
 
+        # ... 剩余的检查登录是否成功的逻辑 ...
         is_logged_in = await page.evaluate('''() => {
             const logoutButton = document.querySelector('a[href="/logout/"]');
             return logoutButton !== null;
@@ -61,10 +75,10 @@ async def login(username, password, panel):
     except Exception as e:
         print(f'{serviceName}账号 {username} 登录时出现错误: {e}')
         return False
-
     finally:
         if page:
             await page.close()
+
 # 显式的浏览器关闭函数
 async def shutdown_browser():
     global browser
